@@ -2,12 +2,16 @@
   'use strict';
 
   var NBSP = ' ';
-  var WA_NUMBER = '77000000000'; // заменить на номер клиента
+  // Настройки компании приходят из index.html (window.SITE), их собирает leads-tools/make_site.py
+  var SITE = window.SITE || {};
+  var WA_NUMBER = SITE.wa || '77000000000';
+  var CUR = SITE.currency || '₸';
+  var PRICES = SITE.prices || {};
 
   var TYPES = {
-    cosmetic: { name: 'косметический', price: 18000, daysPerM2: 0.45, minDays: 14 },
-    capital: { name: 'капитальный', price: 45000, daysPerM2: 1.0, minDays: 35 },
-    design: { name: 'по дизайн-проекту', price: 75000, daysPerM2: 1.35, minDays: 49 }
+    cosmetic: { name: 'косметический', price: PRICES.cosmetic || 18000, daysPerM2: 0.45, minDays: 14 },
+    capital: { name: 'капитальный', price: PRICES.capital || 45000, daysPerM2: 1.0, minDays: 35 },
+    design: { name: 'по дизайн-проекту', price: PRICES.design || 75000, daysPerM2: 1.35, minDays: 49 }
   };
 
   function money(n, sep) {
@@ -31,16 +35,17 @@
     var m2 = Number(area.value);
     var checked = document.querySelector('input[name=type]:checked');
     var t = TYPES[checked ? checked.value : 'capital'];
-    var total = Math.round(m2 * t.price / 50000) * 50000;
+    var step = t.price >= 5000 ? 50000 : 5000; // тенге и сумы округляем крупнее, рубли мельче
+    var total = Math.round(m2 * t.price / step) * step;
     var weeks = Math.ceil(Math.max(t.minDays, m2 * t.daysPerM2) / 7);
 
     areaOut.textContent = m2 + NBSP + 'м²';
-    sum.textContent = 'от' + NBSP + money(total) + NBSP + '₸';
+    sum.textContent = 'от' + NBSP + money(total) + NBSP + CUR;
     term.textContent = 'около ' + weeks + NBSP + weeksWord(weeks);
     area.setAttribute('aria-valuetext', m2 + ' квадратных метров');
 
     var msg = 'Здравствуйте! Нужен ремонт: ' + m2 + ' м², ' + t.name +
-      '. Расчёт на сайте: от ' + money(total, ' ') + ' ₸, около ' + weeks + ' ' + weeksWord(weeks) +
+      '. Расчёт на сайте: от ' + money(total, ' ') + ' ' + CUR + ', около ' + weeks + ' ' + weeksWord(weeks) +
       '. Когда можно замер?';
     var href = 'https://wa.me/' + WA_NUMBER + '?text=' + encodeURIComponent(msg);
     waCalc.href = href;
@@ -138,9 +143,36 @@
       else if (formatTel(form.tel.value).digits < 10) problem = 'В номере не хватает цифр. Нужно 10 после +7.';
       else if (!form.agree.checked) problem = 'Отметьте согласие на обработку данных, без него не можем принять заявку.';
       if (problem) { err.textContent = problem; err.hidden = false; return; }
-      // Здесь подключается отправка в Telegram-бот клиента.
-      form.querySelector('button[type=submit]').hidden = true;
-      done.hidden = false;
+      var btn = form.querySelector('button[type=submit]');
+      var name = form.name.value.trim(), phone = form.tel.value;
+      function finish(text) {
+        if (text) done.textContent = text;
+        btn.hidden = true;
+        done.hidden = false;
+      }
+      if (SITE.form === 'whatsapp') {
+        // заявка уходит владельцу сообщением в WhatsApp, сервер не нужен
+        var text = 'Заявка на замер с сайта. Имя: ' + name + '. Телефон: ' + phone + '.';
+        finish('Открываем WhatsApp. Нажмите «Отправить», и мы перезвоним в течение рабочего дня.');
+        window.location.href = 'https://wa.me/' + WA_NUMBER + '?text=' + encodeURIComponent(text);
+      } else if (SITE.form === 'endpoint' && SITE.endpoint) {
+        // заявка уходит на сервер-пересыльщик (leads-tools/telegram-worker.js), тот пишет в Telegram владельца
+        btn.disabled = true;
+        fetch(SITE.endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name, tel: phone, page: location.href })
+        }).then(function (r) {
+          if (!r.ok) throw new Error('status ' + r.status);
+          finish();
+        }).catch(function () {
+          btn.disabled = false;
+          err.textContent = 'Заявка не отправилась. Попробуйте ещё раз или позвоните: ' + (SITE.phone || '') + '.';
+          err.hidden = false;
+        });
+      } else {
+        finish(); // демо: заявка никуда не отправляется
+      }
     });
   }
 })();

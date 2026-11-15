@@ -34,6 +34,10 @@ async function start() {
   });
   if (mats.Glass) { mats.Glass.transparent = true; mats.Glass.opacity = 0.3; mats.Glass.depthWrite = false; }
 
+  // акцентная стена красится в фирменный цвет компании
+  const accent = window.SITE && window.SITE.accent;
+  if (accent && mats.WallAccent) mats.WallAccent.color.set(accent);
+
   const CONCRETE = new THREE.Color('#8E908D');
   const wallFinal = mats.Wall ? mats.Wall.color.clone() : null;
   const accentFinal = mats.WallAccent ? mats.WallAccent.color.clone() : null;
